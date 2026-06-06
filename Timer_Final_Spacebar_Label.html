@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mental Maths Timer</title>
+
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 25px;
+      margin-top: 40px;
+      background: linear-gradient(135deg, #ffa500, #ffff00);
+      color: white;
+      min-height: 100vh;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+
+    .card {
+      background: linear-gradient(325deg, #ffa500, #ffff00);
+      padding: 22px;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+      width: 520px;
+      max-width: 100%;
+    }
+
+    #time {
+      font-size: 4rem;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: vertical;
+      gap: 12px;
+      margin-bottom: 14px;;
+    }
+
+    #setButtons {
+      display: linear;
+      gap: 10px;
+      flex-wrap: none;
+      flex-direction: column;
+    }
+
+    button {
+      padding: 10px 16px;
+      font-size: 1.5rem;
+      cursor: pointer;
+      border-radius: 10px;
+      border: none;
+      transition: transform .12s ease, box-shadow .12s ease, opacity .12s ease;
+      background: #00ffa500;
+      color: #006400;
+    }
+
+    button:hover { transform: translateY(-2px); }
+
+    .setBtn { border: 2px solid rgba(255,255,255,0.06); }
+    .setBtn.active {
+      background: #0d6efd;
+      border-color: #5ab4ff;
+      box-shadow: 0 6px 18px rgba(13,110,253,0.2);
+      color: white;
+    }
+
+    #startStopBtn { background: #28a745; width: 140px; font-weight: 700; font-size: 2rem; color: white }
+    #startStopBtn.running { background: #dc3545; width: 140px; font-weight: 700; font-size: 2rem; color: white }
+
+    .secondary { background: #ff8800; color: white; width: 140px; font-weight: 700; font-size: 2rem; color: white}
+    .muted { background: #555; color: white; width: 140px; font-weight: 700; font-size: 2rem; color: white}
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 10px;
+      background: #00ffff00;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th {
+      background: #00ffff00;
+      padding: 12px;
+      font-size: 1.5rem;
+      text-align: left;
+      color: #006400;
+    }
+
+    td {
+      border-top: 1px solid #161616;
+      padding: 10px;
+      color: #00ffff00;
+      vertical-align: middle;
+      font-size: 1.5rem;
+      color: #006400
+    }
+
+    .delBtn {
+      background: #00ffff00; color: white; padding: 6px 10px; border-radius: 6px; cursor: pointer; border: none;
+    }
+
+    .small { font-size: 1rem; color: #006400; }
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    <div id="time">
+        </div>
+
+    <div class="controls">
+      <div id="setButtons">
+        <button class="setBtn" data-time="25">25s</button>
+        <button class="setBtn" data-time="20">20s</button>
+        <button class="setBtn" data-time="15">15s</button>
+        <button class="setBtn" data-time="10">10s</button>
+        <button class="setBtn" data-time="5">5s</button>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div style="display:flex;flex-direction:column;align-items:center;">
+<button id="startStopBtn">Start</button>
+<div style="font-size:0.9rem;color:white;margin-top:4px;">Spacebar Shortcut</div>
+</div>
+        <button id="clearAllBtn" class="secondary" title="Clear all entries">Clear All</button>
+        <button id="undoBtn" class="muted" title="Undo last delete">Undo</button>
+      </div>
+    </div>
+
+    <table id="logTable" aria-label="Question log">
+      <tr>
+        <th>Question</th>
+        <th>Answer</th>
+        <th>Time (s)</th>
+        <th style="text-align:right; padding-right:12px;">Delete</th>
+      </tr>
+    </table>
+
+    <div class="small" style="margin-top:10px;">Times shorter than 1.0s are discarded automatically.</div>
+  </div>
+
+  <!-- Longer, louder beep -->
+  <audio id="beepSound" preload="auto">
+<source src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" type="audio/ogg">
+Your browser does not support the audio element.
+</audio>
+
+  <script>
+    // State
+    let startTime = 0;
+    let running = false;
+    let timerInterval = null;
+    let questionCount = 0;
+
+    let countdownTarget = null;
+    let beeped = false;
+
+    let lastDeleted = null; // { time: '1.234' }
+
+    // Elements
+    const timeDisplay = document.getElementById('time');
+    const startStopBtn = document.getElementById('startStopBtn');
+    const logTable = document.getElementById('logTable');
+    const setButtons = document.querySelectorAll('.setBtn');
+    const clearAllBtn = document.getElementById('clearAllBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const beepSound = document.getElementById('beepSound');
+
+    function format(t) { return t.toFixed(3); }
+
+    function renumber() {
+      // Renumber question labels and update questionCount
+      let q = 1;
+      [...logTable.rows].slice(1).forEach(r => {
+        r.cells[0].textContent = `Question ${q++}`;
+      });
+      questionCount = Math.max(0, logTable.rows.length - 1);
+    }
+
+    function createDeleteButton(row) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'delBtn';
+      delBtn.type = 'button';
+      delBtn.textContent = '✖';
+      delBtn.title = 'Delete this entry';
+      delBtn.onclick = () => {
+        lastDeleted = { time: row.cells[1].textContent };
+        row.remove();
+        renumber();
+      };
+      return delBtn;
+    }
+
+    // Set button highlight and value
+    setButtons.forEach(b => {
+      b.addEventListener('click', () => {
+        countdownTarget = Number(b.dataset.time);
+        beeped = false;
+        setButtons.forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+      });
+    });
+
+    // Start/Stop behavior
+    startStopBtn.addEventListener('click', () => {
+      if (!running) {
+        // Start
+        running = true;
+        startStopBtn.textContent = 'Stop';
+        startStopBtn.classList.add('running');
+        beeped = false;
+        startTime = performance.now();
+
+        timerInterval = setInterval(() => {
+          const elapsed = (performance.now() - startTime) / 1000;
+          timeDisplay.textContent = format(elapsed);
+
+          if (countdownTarget && !beeped && elapsed >= countdownTarget) {
+            try {
+              beepSound.volume = 1.0;
+              // play once; longer sound file provides a longer beep
+              beepSound.currentTime = 0;
+              const p = beepSound.play();
+              if (p && typeof p.catch === 'function') p.catch(() => {/* ignore autoplay block */});
+            } catch (e) { /* ignore */ }
+            beeped = true;
+          }
+        }, 10);
+
+      } else {
+        // Stop
+        running = false;
+        startStopBtn.textContent = 'Start';
+        startStopBtn.classList.remove('running');
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+
+        const finalTime = (performance.now() - startTime) / 1000;
+
+        if (finalTime >= 1.0) {
+          questionCount++;
+          const row = logTable.insertRow();
+          const qCell = row.insertCell(0);
+          const answerCell = row.insertCell(1);
+          const tCell = row.insertCell(2);
+          const delCell = row.insertCell(3);
+
+          qCell.textContent = `Question ${questionCount}`;
+
+          const answerBox = document.createElement('input');
+          answerBox.type = 'text';
+          answerBox.placeholder = 'Write answer';
+          answerBox.style.width = '95%';
+          answerCell.appendChild(answerBox);
+
+          tCell.textContent = format(finalTime);
+          delCell.style.textAlign = 'right';
+          delCell.style.paddingRight = '12px';
+          delCell.appendChild(createDeleteButton(row));
+
+          renumber();
+        }
+
+        timeDisplay.textContent = '0.000';
+      }
+    });
+
+    // Clear All
+    clearAllBtn.onclick = () => {
+      [...logTable.rows].slice(1).forEach(r => r.remove());
+      questionCount = 0;
+      lastDeleted = null;
+    };
+
+    // Undo Delete
+    undoBtn.onclick = () => {
+      if (!lastDeleted) return;
+      questionCount++;
+      const row = logTable.insertRow();
+      const qCell = row.insertCell(0);
+      const answerCell = row.insertCell(1);
+      const tCell = row.insertCell(2);
+      const delCell = row.insertCell(3);
+
+      qCell.textContent = `Question ${questionCount}`;
+
+      const answerBox = document.createElement('input');
+      answerBox.type = 'text';
+      answerBox.placeholder = 'Write answer';
+      answerCell.appendChild(answerBox);
+
+      tCell.textContent = lastDeleted.time;
+      delCell.style.textAlign = 'right';
+      delCell.style.paddingRight = '12px';
+      delCell.appendChild(createDeleteButton(row));
+
+      renumber();
+      lastDeleted = null;
+    };
+  // Keyboard shortcuts
+let backspaceHeld = false;
+let pendingNumber = null;
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Backspace') {
+    backspaceHeld = true;
+    pendingNumber = null;
+  }
+  if (backspaceHeld && /^[0-9]$/.test(e.key)) {
+    pendingNumber = Number(e.key);
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'Backspace') {
+    if (pendingNumber === null) {
+      clearAllBtn.click();
+    } else {
+      const rows = [...logTable.rows].slice(1);
+      const toDelete = Math.min(pendingNumber, rows.length);
+      for (let i = 0; i < toDelete; i++) rows[rows.length - 1 - i].remove();
+      renumber();
+    }
+    backspaceHeld = false;
+    pendingNumber = null;
+  }
+});
+
+
+// Spacebar shortcut for Start/Stop
+document.addEventListener('keydown', (e) => {
+  if (
+    e.code === 'Space' &&
+    e.target.tagName !== 'INPUT' &&
+    e.target.tagName !== 'TEXTAREA'
+  ) {
+    e.preventDefault();
+    startStopBtn.click();
+  }
+});
+
+</script>
+</body>
+</html>
